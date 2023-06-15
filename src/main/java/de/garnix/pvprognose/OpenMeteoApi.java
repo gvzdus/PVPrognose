@@ -21,17 +21,16 @@ public class OpenMeteoApi {
 
 
     public static ForecastHour[] getForecast(double longitude, double latitude) {
-        /*
+/*
         String url = "https://api.open-meteo.com/v1/forecast?latitude=" + latitude + "&longitude=" +
                 longitude + "&forecast_days=" + FORECAST_DAYS + "&past_days=" + LAST_DAYS +
                 "&hourly=temperature_2m,diffuse_radiation," +
                 "direct_normal_irradiance,shortwave_radiation,weathercode&daily=weathercode," +
                 "&timeformat=unixtime&timezone=auto&cell_selection=nearest";
 
-         */
-
+        */
         String url = "https://archive-api.open-meteo.com/v1/archive?latitude=" + latitude + "&longitude=" +
-                longitude + "&start_date=2023-05-01&end_date=2023-05-31" +
+                longitude + "&start_date=2022-06-01&end_date=2023-05-31" +
                 "&hourly=temperature_2m,diffuse_radiation," +
                 "direct_normal_irradiance,shortwave_radiation,weathercode&daily=weathercode," +
                 "&timeformat=unixtime&timezone=auto";

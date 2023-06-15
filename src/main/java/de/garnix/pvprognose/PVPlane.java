@@ -11,6 +11,7 @@ public class PVPlane {
     public double cellsTempCoeff;
     public Inverter inverter;
     public int dcCapacity;
+    public double tiltCosDiffuse;
 
     public Integer[] horizonElevation = new Integer[36];
     public Double[] horizonOpacity = new Double[36];
@@ -33,6 +34,7 @@ public class PVPlane {
         tilt = Double.parseDouble(v);
         double tiltSin = Math.sin(((90-tilt) / 180.0 * Math.PI));
         double tiltCos = Math.cos(((90-tilt) / 180.0 * Math.PI));
+        tiltCosDiffuse = Math.cos((tilt / 180.0 * Math.PI));
 
         vector[0] = azimuthSin * tiltCos;
         vector[1] = azimuthCos * tiltCos;

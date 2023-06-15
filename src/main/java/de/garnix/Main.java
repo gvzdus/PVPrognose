@@ -6,6 +6,7 @@ import de.garnix.pvprognose.OpenMeteoApi;
 import de.garnix.pvprognose.PVPlane;
 
 import java.io.FileReader;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Properties;
@@ -25,39 +26,99 @@ public class Main {
         for (ForecastHour hour : hours) {
             for (PVPlane p : planes) {
                 // We calculate twice: With sun at beginning and end (now) of the past hour
-                double watt = 0.0;
-                for (ForecastHour.Sunpos sunpos : new ForecastHour.Sunpos[]{hour.sunposStart, hour.sunposEnd}) {
+                double direct_radiation_on_plane = 0;
 
-                    // eff is the efficiency for direct radiation
-                    double eff = 0.0;
-                    if (hour.direct_normal_irradiance > 0) {
-                        eff = p.vector[0] * sunpos.vector[0] +
-                                p.vector[1] * sunpos.vector[1] +
-                                p.vector[2] * sunpos.vector[2];
-                        eff = Math.max(0, eff);
+                if (hour.direct_normal_irradiance > 0) {
+
+                    // We calculate in 15 steps (each ~ 1°):
+
+                    // irridianceDeg = distributing the irridiance into 15 subparts
+                    double[] irridianceDeg = new double[15];
+                    double dElev = ( hour.sunposEnd.elevation - hour.sunposStart.elevation ) / 15.0;
+                    double dAzi = ( hour.sunposEnd.azimuth - hour.sunposStart.azimuth ) / 15.0;
+                    // if sunrise or sunset involved, we distribute the hour sum based on the
+                    // elevation of the sun, where positive
+                    boolean sunRiseOrSet = (hour.sunposStart.elevation < 0 || hour.sunposEnd.elevation < 0);
+
+                    if (sunRiseOrSet) {
+                        double weightSum = 0;
+                        for (int i = 0; i < 15; i++) {
+                            double elev = hour.sunposEnd.elevation + dElev*(i+0.5);
+                            if (elev > 0) {
+                                irridianceDeg[i] = hour.direct_normal_irradiance * elev;
+                                weightSum += elev;
+                            } else {
+                                // sun below horizon
+                                irridianceDeg[i] = 0;
+                            }
+                        }
+                        if (weightSum>0)
+                            for (int i = 0; i < 15; i++)
+                                irridianceDeg[i] /= weightSum;
+                    } else {
+                        // think of radiation sum as equal for all 15 slots:
+                        for (int i = 0; i < 15; i++)
+                            irridianceDeg[i] = hour.direct_normal_irradiance / 15.0;
                     }
-                    if (eff > 0) {
-                        //Calculate shading  in 10 degree ranges, total 36 ranges
-                        int shadingIndex = (((int) Math.round((sunpos.azimuth) / 10)) % 36 + 36) % 36;
-                        if (p.horizonElevation[shadingIndex] != null &&
-                                p.horizonElevation[shadingIndex] > sunpos.elevation) {
-                            eff *= p.horizonOpacity[shadingIndex];
+                    System.out.println ("DEBUG: " + hour.endDateTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) +
+                            " plane=" + p.name + " sunpos.ele=" + hour.sunposEnd.elevation + " " +
+                            " direct_normal_irradiance=" + hour.direct_normal_irradiance + " distributed as: " +
+                            dumpVector(irridianceDeg));
+
+                    // being here, the radition (without obstacles) has been split into the slots
+                    // now take care of the "real" horizon (obstacles):
+                    for (int i = 0; i < 15; i++) {
+                        if (irridianceDeg[i]>0) {
+                            int shadingIndex = (((int) Math.round((hour.sunposStart.azimuth + dAzi* ( i + 0.5)) / 10))
+                                    % 36 + 36) % 36;
+                            double elev = hour.sunposStart.elevation + dElev*(i+0.5);
+                            if (p.horizonElevation[shadingIndex] != null &&
+                                    p.horizonElevation[shadingIndex] > elev) {
+                                irridianceDeg[i] *= p.horizonOpacity[shadingIndex];
+                            }
                         }
                     }
+                    System.out.println ("DEBUG: " + hour.endDateTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) +
+                            " plane=" + p.name + " sunpos.ele=" + hour.sunposEnd.elevation + " " +
+                            " direct_normal_irradiance=" + hour.direct_normal_irradiance + " horizon corrected as: " +
+                            dumpVector(irridianceDeg));
 
-                    // TODO: cos(tilt) is static
-                    double shortwave_eff = (0.5 - 0.5 * Math.cos(p.tilt / 180 * Math.PI));
-                    double totalRadiationOnCell = hour.direct_normal_irradiance * eff +
-                            hour.diffuse_radiation * p.diffuseEfficiency +
-                            hour.shortwave_radiation * shortwave_eff * p.albedo;  //flat plate equivalent of the solar irradiance
-                    double cellTemperature = calcCellTemperature(hour.temperature, totalRadiationOnCell);
-                    double dcPower;
-                    //assume cellMaxPower is defined at 1000W/sqm
-                    //dcPower = totalRadiationOnCell/1000.0 * (1+(cellTemperature - 25.0)*p.cellsTempCoeff) * p.dcCapacity;
-                    dcPower = totalRadiationOnCell / 1000.0 * p.dcCapacity;
-                    // System.out.println (p.name + " : dc=" + dcPower + " at " + cellTemperature + "°");
-                    double dcPowerCorrected = dcPower * (1.0 + (cellTemperature - 25.0) * p.cellsTempCoeff);
-                    // System.out.println (p.name + " : dct=" + dcPower + " at " + cellTemperature + "° " + p.cellsTempCoeff);
+                    // final step: Apply the weighted vector products of solar plane and normal plane
+                    double effStart = p.vector[0] * hour.sunposStart.vector[0] +
+                            p.vector[1] * hour.sunposStart.vector[1] +
+                            p.vector[2] * hour.sunposStart.vector[2];
+                    double effEnd = p.vector[0] * hour.sunposEnd.vector[0] +
+                            p.vector[1] * hour.sunposEnd.vector[1] +
+                            p.vector[2] * hour.sunposEnd.vector[2];
+                    double dEff = (effEnd-effStart) / 15.0;
+                    for (int i = 0; i < 15; i++) {
+                        double eff = effStart + ( dEff * (i+0.5) );
+                        if (eff > 0.0) {
+                            irridianceDeg[i] *= eff;
+                            direct_radiation_on_plane += irridianceDeg[i];
+                        } else {
+                            // eff might negative, so set to 0
+                            irridianceDeg[i] = 0;
+                        }
+                    }
+                    System.out.println ("DEBUG: " + hour.endDateTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) +
+                            " plane=" + p.name + " sunpos.ele=" + hour.sunposEnd.elevation + " " +
+                            " direct_normal_irradiance=" + hour.direct_normal_irradiance + " vectored as: " +
+                            dumpVector(irridianceDeg));
+                }
+
+                double shortwave_eff = 0.5 - 0.5 * p.tiltCosDiffuse;
+                double totalRadiationOnCell = direct_radiation_on_plane +
+                        hour.diffuse_radiation * p.diffuseEfficiency +
+                        hour.shortwave_radiation * shortwave_eff * p.albedo;  //flat plate equivalent of the solar irradiance
+                double cellTemperature = calcCellTemperature(hour.temperature, totalRadiationOnCell);
+                double dcPower;
+                //assume cellMaxPower is defined at 1000W/sqm
+                //dcPower = totalRadiationOnCell/1000.0 * (1+(cellTemperature - 25.0)*p.cellsTempCoeff) * p.dcCapacity;
+                dcPower = totalRadiationOnCell / 1000.0 * p.dcCapacity;
+                // System.out.println (p.name + " : dc=" + dcPower + " at " + cellTemperature + "°");
+                double dcPowerCorrected = dcPower * (1.0 + (cellTemperature - 25.0) * p.cellsTempCoeff);
+                // System.out.println (p.name + " : dct=" + dcPower + " at " + cellTemperature + "° " + p.cellsTempCoeff);
                     /* System.out.println("DEBUG: " + hour.dateTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) +
                             " plane=" + p.name + " sunpos.ele=" + sunpos.elevation + " " +
                             " direct=(" + hour.direct_normal_irradiance + " x " + eff + " = ) " + (hour.direct_normal_irradiance * eff ) +
@@ -66,9 +127,7 @@ public class Main {
                             " totalRadiation=" + totalRadiationOnCell +
                             " sumTotal = " + dcPower + " sumCorrected = ( x " +  (1.0 + (cellTemperature - 25.0) * p.cellsTempCoeff) + " = ) " + dcPowerCorrected) ;
                     */
-                    watt += dcPowerCorrected;
-                }
-                p.inverter.addWatt(watt / 2.0);
+                p.inverter.addWatt(dcPowerCorrected);
             }
             double wattInverter = 0.0;
             for (Inverter i : Inverter.getInverters()) {
@@ -109,5 +168,12 @@ public class Main {
         for (String s : planeNames) {
             planes.add (new PVPlane(props, s));
         }
+    }
+
+    static String dumpVector(double[] input) {
+        String s = "[" + String.format ("%.3f", input[0]);
+        for (int i = 1; i < input.length; i++)
+            s += "," + String.format ("%.3f", input[i]);
+        return s + "]";
     }
 }
