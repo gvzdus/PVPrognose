@@ -16,7 +16,7 @@ public class Main {
     static double longitude;
     static double latitude;
 
-    static List<PVPlane> planes = new LinkedList<PVPlane>();
+    static List<PVPlane> planes = new LinkedList<>();
     public static void main(String[] args) throws Exception {
 
         loadProperties(args[0]);
@@ -69,12 +69,11 @@ public class Main {
                     // now take care of the "real" horizon (obstacles):
                     for (int i = 0; i < 15; i++) {
                         if (irridianceDeg[i]>0) {
-                            int shadingIndex = ((int) Math.floor((hour.sunposStart.azimuth + dAzi* ( i + 0.5) + 360) / 10)) % 36;
-                            double elev = hour.sunposStart.elevation + dElev*(i+0.5);
-                            if (p.horizonElevation[shadingIndex] != null &&
-                                    p.horizonElevation[shadingIndex] > elev) {
-                                irridianceDeg[i] *= p.horizonOpacity[shadingIndex];
-                            }
+                            irridianceDeg[i] = p.getElevationCorrectedValue(
+                                    hour.sunposStart.azimuth + dAzi * ( i + 0.5 ),
+                                    hour.sunposStart.elevation + dElev * ( i + 0.5 ),
+                                    irridianceDeg[i]
+                            );
                         }
                     }
                     System.out.println ("DEBUG: " + hour.endDateTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) +
@@ -143,9 +142,8 @@ public class Main {
         //models from here: https://www.scielo.br/j/babt/a/FBq5Pmm4gSFqsfh3V8MxfGN/  Photovoltaic Cell Temperature Estimation for a Grid-Connect Photovoltaic Systems in Curitiba
         //float cellTemperature =  30.006f + 0.0175f*(totalIrradiance-300f)+1.14f*(ambientTemperature-25f);  //Lasnier and Ang  Lasnier, F.; Ang, T. G. Photovoltaic engineering handbook, 1st ed.; IOP Publishing LTD: Lasnier, France, 1990; pp. 258.
         //float cellTemperature = ambientTemperature + 0.028f*totalIrradiance-1f;  //Schott Schott, T. Operation temperatures of PV modules. Photovoltaic solar energy conference 1985, pp. 392-396.
-        double cellTemperature = ambientTemperature + 0.0342f*totalIrradiance;  //Ross model: https://www.researchgate.net/publication/275438802_Thermal_effects_of_the_extended_holographic_regions_for_holographic_planar_concentrator
         //assuming "not so well cooled" : 0.0342
-        return cellTemperature;
+        return ambientTemperature + 0.0342f*totalIrradiance;
     }
 
     static void loadProperties(String path) throws Exception {

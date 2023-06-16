@@ -6,17 +6,17 @@ public class PVPlane {
     public String name;
     public double azimuth;
     public double tilt;
-    public final double diffuseEfficiency;
-    public final double albedo;
+    public double diffuseEfficiency;
+    public double albedo;
     public double cellsTempCoeff;
     public Inverter inverter;
     public int dcCapacity;
     public double tiltCosDiffuse;
 
-    public Integer[] horizonElevation = new Integer[36];
-    public Double[] horizonOpacity = new Double[36];
-
     public double [] vector = new double[3];
+
+    private ElevationTransparency[][] elevationTransparencies = null;
+    private float azimuthMultiple;
 
     public PVPlane(Properties p, String name) throws Exception {
         String v;
@@ -56,6 +56,39 @@ public class PVPlane {
         v = p.getProperty(prefix + "inverter");
         inverter = Inverter.getOrCreate(p, v);
 
+        v = p.getProperty(prefix + "horizon");
+        if (v!=null) {
+            String[] svals = v.split("\\s*,\\s*");
+            int noSvals = svals.length;
+            elevationTransparencies = new ElevationTransparency[noSvals][];
+            azimuthMultiple = (float) (noSvals / 360.0);
+            for (int i = 0; i < noSvals; i++) {
+                String sval = svals[i];
+                if (sval.length()>0) {
+                    String[] tvals = sval.split("t");
+                    int noTvals = tvals.length;
+                    elevationTransparencies[i] = new ElevationTransparency[(noTvals+1)/2];
+                    try {
+                        for (int j = 0; j < noTvals; j+=2) {
+                            ElevationTransparency et = new ElevationTransparency();
+                            et.elevation = Float.parseFloat(tvals[j]);
+                            if (j+1 < noTvals) {
+                                et.transparency = Float.parseFloat(tvals[j+1]);
+                            }
+                            elevationTransparencies[i][j] = et;
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        throw new Exception ("Cannot parse horizon value " + v + ": " + sval + " broken:" + e.toString());
+                    }
+                }
+            }
+        }
+
+
+        /*
+
+            Old code for old format
         for (int i = 0; i < 36; i++) {
             v = p.getProperty(prefix + "horizon" + String.format("%02d", i));
             if (v == null) continue;
@@ -69,5 +102,25 @@ public class PVPlane {
                 }
             }
         }
+         */
+    }
+
+    public double getElevationCorrectedValue (double azimuth, double elevation, double value) {
+        if (value<=0.0)
+            return 0.0;
+        int idx = (int) Math.floor((azimuth+360) * azimuthMultiple) % elevationTransparencies.length;
+        if (elevationTransparencies[idx]==null)
+            return value;
+        for (ElevationTransparency et : elevationTransparencies[idx]) {
+            if (elevation <= et.elevation)
+                return et.transparency*value;
+        }
+        return value;
+    }
+
+
+    private static class ElevationTransparency {
+        float elevation;
+        float transparency = 0.0f;
     }
 }
