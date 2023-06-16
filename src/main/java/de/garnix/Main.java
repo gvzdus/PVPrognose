@@ -69,8 +69,7 @@ public class Main {
                     // now take care of the "real" horizon (obstacles):
                     for (int i = 0; i < 15; i++) {
                         if (irridianceDeg[i]>0) {
-                            int shadingIndex = (((int) Math.round((hour.sunposStart.azimuth + dAzi* ( i + 0.5)) / 10))
-                                    % 36 + 36) % 36;
+                            int shadingIndex = ((int) Math.floor((hour.sunposStart.azimuth + dAzi* ( i + 0.5) + 360) / 10)) % 36;
                             double elev = hour.sunposStart.elevation + dElev*(i+0.5);
                             if (p.horizonElevation[shadingIndex] != null &&
                                     p.horizonElevation[shadingIndex] > elev) {
